@@ -27,6 +27,7 @@ add_executable(pico2w-wigle
     src/wigle_upload.c
     src/csv_buffer.c
     src/clock_sync.c
+    src/mbedtls_glue.c
 )
 
 target_include_directories(pico2w-wigle PRIVATE
@@ -42,9 +43,14 @@ target_compile_definitions(pico2w-wigle PRIVATE
     # The escaped quotes are necessary: cmake passes the raw value as
     # the body of -D, so we need the inner quotes to survive the shell.
     CYW43_HOST_NAME=\"pico2w-wigle\"
-    MBEDTLS_CONFIG_FILE=\"mbedtls_config.h\"
     BUILD_EPOCH=${BUILD_EPOCH}
 )
+# Don't set MBEDTLS_CONFIG_FILE ourselves: pico-sdk's pico_mbedtls
+# target already wires it to pico_mbedtls_config.h, and that file
+# does `#include "mbedtls_config.h"` so our src/mbedtls_config.h gets
+# picked up via target_include_directories. Defining it twice causes
+# the compiler's "<command-line>: warning: MBEDTLS_CONFIG_FILE
+# redefined" noise on every TU.
 
 target_compile_options(pico2w-wigle PRIVATE
     -Wall -Wextra -Wno-unused-parameter
