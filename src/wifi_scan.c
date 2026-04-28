@@ -18,10 +18,28 @@ static const char *auth_mode_to_string(uint8_t auth_mode) {
     return "[WPA2-PSK-CCMP][ESS]";
 }
 
+// Bumped from the scan callback (cyw43 background context) and
+// drained from the main loop when it's safe to take blocking sleeps
+// for the LED pulse. volatile because the two contexts touch it.
+static volatile uint32_t g_new_bssid_pending;
+
+uint32_t wifi_scan_drain_new_bssid_count(void) {
+    uint32_t n = g_new_bssid_pending;
+    g_new_bssid_pending = 0;
+    return n;
+}
+
 static int scan_result_cb(void *env, const cyw43_ev_scan_result_t *r) {
     (void)env;
     if (!r) return 0;
     if (csv_buffer_session_seen(r->bssid)) return 0;
+
+    // First-ever observation of this AP since boot? Tell main.c to
+    // flash the LED. We do this *before* the GPS-fix bail-out so the
+    // discovery is announced even when we can't (yet) record a row.
+    if (!csv_buffer_global_seen(r->bssid)) {
+        g_new_bssid_pending++;
+    }
 
     const gps_state_t *gps = gps_get_state();
     if (!gps->has_fix || gps->timestamp[0] == '\0') {

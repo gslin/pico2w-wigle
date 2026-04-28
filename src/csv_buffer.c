@@ -24,6 +24,14 @@ static size_t entry_count;
 static uint8_t session_seen[SESSION_DEDUP_MAX][6];
 static size_t  session_seen_count;
 
+// Global (per-boot) BSSID set. Linear search is fine: ~512 × 6 cmp
+// per scan callback is negligible. If we overflow the table, new
+// BSSIDs read as "already seen" — silently dropping the LED blink,
+// not affecting Wigle data.
+#define GLOBAL_DEDUP_MAX 512
+static uint8_t global_seen[GLOBAL_DEDUP_MAX][6];
+static size_t  global_seen_count;
+
 static void emit_header(void) {
     size_t n = sizeof(CSV_HEADER) - 1;
     memcpy(buffer, CSV_HEADER, n);
@@ -34,6 +42,7 @@ static void emit_header(void) {
 void csv_buffer_init(void) {
     emit_header();
     session_seen_count = 0;
+    global_seen_count  = 0;
 }
 
 size_t      csv_buffer_count(void) { return entry_count; }
@@ -58,6 +67,16 @@ bool csv_buffer_session_seen(const uint8_t bssid[6]) {
     // If we exceed the dedupe table the worst case is that we append
     // a duplicate row in the same scan; not a correctness problem for
     // Wigle, just slightly wasteful.
+    return false;
+}
+
+bool csv_buffer_global_seen(const uint8_t bssid[6]) {
+    for (size_t i = 0; i < global_seen_count; i++) {
+        if (memcmp(global_seen[i], bssid, 6) == 0) return true;
+    }
+    if (global_seen_count < GLOBAL_DEDUP_MAX) {
+        memcpy(global_seen[global_seen_count++], bssid, 6);
+    }
     return false;
 }
 

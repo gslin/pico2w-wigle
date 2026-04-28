@@ -28,6 +28,13 @@ void csv_buffer_session_begin(void);
 // session.
 bool csv_buffer_session_seen(const uint8_t bssid[6]);
 
+// Returns true if the BSSID has been observed at any point since
+// boot, false if this is the first time. The global set is *not*
+// cleared by csv_buffer_session_begin or csv_buffer_clear; only a
+// reset clears it. Used by main.c to flash the LED on a brand-new
+// AP discovery.
+bool csv_buffer_global_seen(const uint8_t bssid[6]);
+
 // Append a single WigleWifi observation. Returns false if the buffer
 // is full (caller should trigger an upload).
 bool csv_buffer_append_observation(

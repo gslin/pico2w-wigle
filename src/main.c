@@ -119,6 +119,21 @@ int main(void) {
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
         }
 
+        // Per-discovery flash. The scan callback queues one count for
+        // each first-ever BSSID; we render each as a brief ~80 ms
+        // OFF/ON wink. Cap the burst so a noisy environment can't
+        // stall the loop indefinitely. The next pass through the
+        // scan-state branches above will restore the normal
+        // on-during-scan / off-when-idle pattern.
+        uint32_t flashes = wifi_scan_drain_new_bssid_count();
+        if (flashes > 10) flashes = 10;
+        for (uint32_t i = 0; i < flashes; i++) {
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+            sleep_ms(40);
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+            sleep_ms(40);
+        }
+
         // Yield to lwip / cyw43 work queues. In threadsafe_background
         // mode this is a no-op but keeping it here means the same
         // source compiles under the poll variant too.
