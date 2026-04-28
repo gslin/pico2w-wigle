@@ -26,6 +26,7 @@ add_executable(pico2w-wigle
     src/gps.c
     src/wigle_upload.c
     src/csv_buffer.c
+    src/clock_sync.c
 )
 
 target_include_directories(pico2w-wigle PRIVATE
