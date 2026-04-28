@@ -1,0 +1,12 @@
+build/
+src/secrets.h
+src/wigle_ca_pem.h
+*.uf2
+*.elf
+*.bin
+*.hex
+*.dis
+*.o
+*.swp
+.cache/
+compile_commands.json
