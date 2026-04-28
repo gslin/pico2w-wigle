@@ -32,11 +32,17 @@ target_include_directories(pico2w-wigle PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/src
 )
 
+# Bake the configure-time Unix epoch into the firmware so gps.c can
+# synthesise a monotonic FirstSeen timestamp without a real clock.
+# Refresh by re-running cmake (e.g. `make reconfigure`).
+string(TIMESTAMP BUILD_EPOCH "%s" UTC)
+
 target_compile_definitions(pico2w-wigle PRIVATE
     # The escaped quotes are necessary: cmake passes the raw value as
     # the body of -D, so we need the inner quotes to survive the shell.
     CYW43_HOST_NAME=\"pico2w-wigle\"
     MBEDTLS_CONFIG_FILE=\"mbedtls_config.h\"
+    BUILD_EPOCH=${BUILD_EPOCH}
 )
 
 target_compile_options(pico2w-wigle PRIVATE
@@ -48,7 +54,6 @@ target_link_libraries(pico2w-wigle PRIVATE
     pico_cyw43_arch_lwip_threadsafe_background
     pico_lwip_mbedtls
     pico_mbedtls
-    hardware_uart
 )
 
 # stdio over USB CDC keeps a serial console on the same cable that

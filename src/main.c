@@ -46,20 +46,16 @@ int main(void) {
     wifi_scan_init();
 
     blink_led(2, 200);
-    printf("Waiting for GPS fix on UART1 (GP5)...\n");
+    {
+        const gps_state_t *g = gps_get_state();
+        printf("Fixed location: %.6f,%.6f  alt=%.1fm acc=%.1fm\n",
+               g->latitude, g->longitude, g->altitude_m, g->accuracy_m);
+    }
 
     absolute_time_t next_scan = make_timeout_time_ms(SCAN_INTERVAL_MS);
-    bool announced_fix = false;
 
     while (true) {
         gps_poll();
-
-        if (!announced_fix && gps_has_fix()) {
-            announced_fix = true;
-            const gps_state_t *g = gps_get_state();
-            printf("GPS fix: %.6f,%.6f  alt=%.1fm sats=%d\n",
-                   g->latitude, g->longitude, g->altitude_m, g->satellites);
-        }
 
         // Trigger an upload as soon as the buffer is full, before
         // starting more scans (so we don't drop observations).

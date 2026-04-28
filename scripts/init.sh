@@ -61,12 +61,16 @@ This script will:
      https://api.wigle.net.
   2. Ask for the SSID + password of a Wi-Fi network the Pico can
      briefly join when uploading batches (a phone hotspot is fine).
-  3. Locate ISRG Root X1 (and X2, if present) in the host CA store,
+  3. Ask for the device's permanent latitude / longitude (decimal
+     degrees). Without a real GPS module the firmware stamps every
+     observation with this fixed location, so this is only useful
+     for stationary site surveys.
+  4. Locate ISRG Root X1 (and X2, if present) in the host CA store,
      verify that api.wigle.net currently chains to them, and pin the
      extracted PEM(s) into the firmware. ISRG Root X1 is valid until
      2035-06-04, X2 until 2040-09-17 — so this normally needs to be
      refreshed only if Wigle ever moves off Let's Encrypt.
-  4. Write everything to src/secrets.h (chmod 0600, gitignored) and
+  5. Write everything to src/secrets.h (chmod 0600, gitignored) and
      src/wigle_ca_pem.h (gitignored).
 
 Wigle does NOT expose a password-to-token API; tokens are issued via
@@ -140,7 +144,59 @@ if [ -z "$UPLOAD_SSID" ]; then
     exit 1
 fi
 
-# ---- step 3: extract ISRG Root X1 (+ X2) from host CA store -------------
+# ---- step 3: fixed location ---------------------------------------------
+
+# Validate that the value is a decimal number within [lo, hi]. We use
+# awk for the float comparisons because POSIX shell can't.
+in_range() {
+    local v="$1" lo="$2" hi="$3"
+    case "$v" in
+        ''|.|-|-.) return 1 ;;
+    esac
+    printf '%s\n' "$v" | awk -v lo="$lo" -v hi="$hi" '
+        $0 !~ /^-?[0-9]+(\.[0-9]+)?$/ { exit 1 }
+        ($0+0) < lo || ($0+0) > hi    { exit 1 }
+        { exit 0 }
+    '
+}
+
+echo
+echo 'Fixed location for every observation. Decimal degrees, e.g.'
+echo '  Latitude  25.0335  (positive = North, negative = South)'
+echo '  Longitude 121.5645 (positive = East,  negative = West)'
+echo
+
+while :; do
+    printf 'Latitude  (-90 .. +90)    : ' >&2
+    IFS= read -r FIXED_LATITUDE
+    if in_range "$FIXED_LATITUDE" -90 90; then break; fi
+    echo 'ERROR: must be a decimal in [-90, +90].' >&2
+done
+
+while :; do
+    printf 'Longitude (-180 .. +180)  : ' >&2
+    IFS= read -r FIXED_LONGITUDE
+    if in_range "$FIXED_LONGITUDE" -180 180; then break; fi
+    echo 'ERROR: must be a decimal in [-180, +180].' >&2
+done
+
+while :; do
+    printf 'Altitude metres      [0]  : ' >&2
+    IFS= read -r FIXED_ALTITUDE_M
+    [ -z "$FIXED_ALTITUDE_M" ] && FIXED_ALTITUDE_M=0
+    if in_range "$FIXED_ALTITUDE_M" -1000 10000; then break; fi
+    echo 'ERROR: must be a decimal in [-1000, +10000] (metres MSL).' >&2
+done
+
+while :; do
+    printf 'Accuracy metres      [5]  : ' >&2
+    IFS= read -r FIXED_ACCURACY_M
+    [ -z "$FIXED_ACCURACY_M" ] && FIXED_ACCURACY_M=5
+    if in_range "$FIXED_ACCURACY_M" 0 100000; then break; fi
+    echo 'ERROR: must be a non-negative decimal.' >&2
+done
+
+# ---- step 4: extract ISRG Root X1 (+ X2) from host CA store -------------
 
 # Most distros ship ISRG Root X1/X2 as either a per-cert file or as
 # part of a consolidated bundle. Try the well-known per-cert layouts
@@ -251,7 +307,7 @@ if ! extract_isrg_roots "$ISRG_PEM"; then
     exit 1
 fi
 
-# ---- step 4: verify Wigle currently chains to ISRG ----------------------
+# ---- step 5: verify Wigle currently chains to ISRG ----------------------
 
 echo
 echo 'Verifying api.wigle.net currently chains to ISRG Root X1/X2 ...'
@@ -276,7 +332,7 @@ then
 fi
 echo 'OK — Wigle chains to ISRG.'
 
-# ---- step 5: write headers atomically -----------------------------------
+# ---- step 6: write headers atomically -----------------------------------
 
 umask 077
 
@@ -288,6 +344,12 @@ cat > "$SECRETS_HEADER" <<EOF
 #define WIGLE_API_TOKEN      "$(escape_c "$WIGLE_API_TOKEN")"
 #define UPLOAD_WIFI_SSID     "$(escape_c "$UPLOAD_SSID")"
 #define UPLOAD_WIFI_PASSWORD "$(escape_c "$UPLOAD_PASSWORD")"
+
+// Fixed location stamped onto every Wigle observation.
+#define FIXED_LATITUDE       ($FIXED_LATITUDE)
+#define FIXED_LONGITUDE      ($FIXED_LONGITUDE)
+#define FIXED_ALTITUDE_M     ($FIXED_ALTITUDE_M)
+#define FIXED_ACCURACY_M     ($FIXED_ACCURACY_M)
 EOF
 chmod 0600 "$SECRETS_HEADER"
 

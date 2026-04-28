@@ -1,35 +1,38 @@
-// GPS NMEA parser for an external UART GPS module.
+// Fixed-location stub.
 //
-// Wiring (defaults — change in gps.c if you wire it differently):
-//   GPS module TX  -> Pico GP5 (UART1 RX)
-//   GPS module GND -> Pico GND
-//   GPS module VCC -> Pico 3V3 OUT (most modern modules accept 3.3 V;
-//                                   if your module needs 5 V, take
-//                                   power from VBUS instead and add a
-//                                   level shifter on TX -> GP5)
+// The Pico 2 W has no built-in GPS. Rather than require a UART GPS
+// module on the BOM, `make init` asks for the device's permanent
+// coordinates (decimal degrees + optional altitude/accuracy) and
+// bakes them into secrets.h. This module exposes those values
+// behind the same interface a real GPS would, plus a timestamp
+// synthesised from the firmware's build time + uptime seconds, so
+// every observation has a monotonically advancing FirstSeen field
+// for Wigle.
 //
-// The Pico does not transmit to the GPS, so the GPS RX pin is left
-// unconnected.
+// The interface name is kept as "gps_*" so the call sites in
+// wifi_scan.c and main.c don't change. To drive a real UART GPS
+// instead, restore the NMEA parser from git history and remove the
+// FIXED_* defines.
 
 #pragma once
 
 #include <stdbool.h>
 
 typedef struct {
-    bool   has_fix;       // 2D / 3D fix from GGA
+    bool   has_fix;       // always true in the fixed-location build
     double latitude;      // decimal degrees, +N / -S
     double longitude;     // decimal degrees, +E / -W
     double altitude_m;    // metres above mean sea level
-    double accuracy_m;    // approximate, derived from HDOP
-    int    satellites;
-    char   timestamp[20]; // "YYYY-MM-DD HH:MM:SS" (UTC)
+    double accuracy_m;    // metres (assumed 1-sigma)
+    int    satellites;    // always 0 here; kept for API parity
+    char   timestamp[20]; // "YYYY-MM-DD HH:MM:SS" (UTC), advances with uptime
 } gps_state_t;
 
 void gps_init(void);
 
-// Drain bytes from the UART FIFO and feed them to the line parser.
-// Cheap; safe to call from the main loop on every iteration.
+// Refresh the timestamp. Cheap; safe to call from the main loop on
+// every iteration, but a once-per-scan call is enough.
 void gps_poll(void);
 
-bool             gps_has_fix(void);
+bool gps_has_fix(void);
 const gps_state_t *gps_get_state(void);

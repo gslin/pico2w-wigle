@@ -10,24 +10,13 @@ preconfigured Wi-Fi network to multipart-POST the batch to
 ## Hardware
 
 * **Raspberry Pi Pico 2 W** (RP2350 + CYW43439).
-* **A UART GPS module** (NEO-6M / NEO-7M / NEO-M8N / ATGM336H — anything
-  that emits NMEA at 9600 8N1 by default).
 * USB cable that carries data (not a charge-only one).
 
-### Wiring
-
-The Pico only listens to the GPS, so the GPS RX pin is left
-unconnected.
-
-| GPS pin | Pico 2 W pin           | Notes                                                                         |
-| ------- | ---------------------- | ----------------------------------------------------------------------------- |
-| `VCC`   | `3V3 OUT` (pin 36)     | Most modern modules accept 3.3 V. If yours needs 5 V, use `VBUS` instead and add a level shifter on TX → GP5. |
-| `GND`   | `GND` (pin 38)         |                                                                               |
-| `TX`    | `GP5` (pin 7, UART1 RX)| NMEA stream goes from the GPS into the Pico here.                             |
-| `RX`    | _(not connected)_      |                                                                               |
-
-To use a different UART/pin pair, edit `GPS_UART`, `GPS_UART_TX_PIN`
-and `GPS_UART_RX_PIN` in `src/gps.c`.
+That's it — no GPS module is required. The firmware stamps every
+observation with a fixed latitude / longitude that you supply during
+`make init` (see below). This makes the project a fit for stationary
+Wi-Fi site surveys; for rolling wardriving with real GPS, restore the
+NMEA parser from a previous commit and re-add the UART pinout.
 
 ## Build prerequisites
 
@@ -70,16 +59,20 @@ Runs `scripts/init.sh`, which:
 3. Prompts for the SSID and password of the Wi-Fi the Pico will
    briefly join during upload bursts (a phone hotspot is the easiest
    choice).
-4. Locates **ISRG Root X1** (and Root X2 if available) in the build
+4. Prompts for the device's permanent latitude, longitude, altitude
+   (default 0 m MSL), and accuracy (default 5 m). All four end up as
+   C macros in `secrets.h` and `gps_get_state` returns them on every
+   call — there's no UART NMEA parser anymore.
+5. Locates **ISRG Root X1** (and Root X2 if available) in the build
    host's CA store — first in the per-cert layouts used by Debian /
    Ubuntu / Fedora / Homebrew, then by walking the consolidated
    `ca-certificates.crt` bundle if needed.
-5. Connects to `api.wigle.net:443` with `openssl s_client -CAfile <those
+6. Connects to `api.wigle.net:443` with `openssl s_client -CAfile <those
    roots> -no-CAfile -no-CApath -verify_return_error`, i.e. trusting
    *only* the extracted ISRG roots. This catches the day Wigle ever
    moves off Let's Encrypt — `make init` aborts loudly rather than
    silently pin something that won't validate on-device.
-6. Writes credentials as C macros to `src/secrets.h` (mode `0600`)
+7. Writes credentials as C macros to `src/secrets.h` (mode `0600`)
    and the ISRG PEM(s) as a `static const unsigned char[]` to
    `src/wigle_ca_pem.h`. Both files are gitignored.
 
@@ -93,6 +86,10 @@ Verifying credentials with https://api.wigle.net/api/v2/profile/user ...
 OK — authenticated as your_wigle_username.
 Upload Wi-Fi SSID    : MyPhoneHotspot
 Upload Wi-Fi password: ********
+Latitude  (-90 .. +90)    : 25.0335
+Longitude (-180 .. +180)  : 121.5645
+Altitude metres      [0]  : 12
+Accuracy metres      [5]  :
 Locating ISRG roots in the host CA store...
   - ISRG Root X1 from /etc/ssl/certs/ISRG_Root_X1.pem
   - ISRG Root X2 from /etc/ssl/certs/ISRG_Root_X2.pem
@@ -136,8 +133,7 @@ Open the USB serial console (115200 8N1) to see something like:
 
 ```
 pico2w-wigle starting up
-Waiting for GPS fix on UART1 (GP5)...
-GPS fix: 25.033964,121.564468  alt=12.4m sats=8
+Fixed location: 25.033500,121.564500  alt=12.0m acc=5.0m
 Buffer full (1000 rows, 142318 bytes). Uploading...
 upload: associating with "MyPhoneHotspot"...
 upload: HTTP 200 ok
@@ -154,19 +150,23 @@ On-board LED:
 
 Main-loop state machine:
 
-1. Wait for a GPS fix. Without a fix we don't scan, so we never emit
-   rows tagged with `0.000000,0.000000`.
-2. Every `SCAN_INTERVAL_MS` (default 8 s) trigger `cyw43_wifi_scan`.
-3. Each scan-result callback inserts a row into the RAM buffer through
+1. Every `SCAN_INTERVAL_MS` (default 8 s) trigger `cyw43_wifi_scan`.
+2. Each scan-result callback inserts a row into the RAM buffer through
    `csv_buffer_append_observation`. Within one scan the same BSSID is
-   recorded only once; observations from later scans (with newer
-   timestamps / GPS fixes) are kept.
-4. When `csv_buffer_count()` reaches 1000, the firmware connects to
+   recorded only once; observations from later scans (with later
+   timestamps) are kept.
+3. When `csv_buffer_count()` reaches 1000, the firmware connects to
    the configured Wi-Fi, multipart-POSTs the batch to
    `api.wigle.net/api/v2/file/upload`, parses the HTTP status line,
    and disconnects.
-5. On a 2xx response the buffer is cleared. Otherwise the rows are
+4. On a 2xx response the buffer is cleared. Otherwise the rows are
    kept and the next attempt happens on the next threshold crossing.
+
+The FirstSeen timestamp is synthesised from `BUILD_EPOCH` (baked in
+at `cmake` configure time) plus the device's uptime in seconds —
+enough to give Wigle a monotonically advancing column without a real
+clock. Re-run `make reconfigure` to refresh `BUILD_EPOCH` if the
+firmware has been sitting on the build host for a long time.
 
 ## Tunable constants
 
@@ -175,7 +175,7 @@ Main-loop state machine:
 | `src/csv_buffer.h` `CSV_BUFFER_UPLOAD_THRESHOLD`    | Rows that trigger an upload (default `1000`).       |
 | `src/csv_buffer.c` `CSV_BUFFER_CAPACITY`            | RAM buffer size (default 192 KiB).                  |
 | `src/main.c` `SCAN_INTERVAL_MS`                     | Time between scans (default `8000`).                |
-| `src/gps.c` `GPS_UART`, `GPS_BAUD`                  | UART instance and baud (default `uart1` / 9600).    |
+| `src/secrets.h` `FIXED_LATITUDE` etc.               | Fixed location stamped on every row. Set by `make init`. |
 | `src/wigle_upload.c` `BOUNDARY`                     | multipart boundary string (no reason to change it). |
 
 ## Known limitations and security notes
@@ -208,8 +208,11 @@ Main-loop state machine:
   associate → DNS → TLS → POST → leave, typically 10–30 s) no scan
   runs. For continuous track quality, refactor to scan while connected
   to the upload AP.
-* **Position is GPS-only.** Observations without a fix are dropped to
-  avoid polluting Wigle with `0,0` rows.
+* **Position is fixed at init time.** Every observation gets the same
+  latitude / longitude. That makes the data useful for stationary site
+  surveys (track which APs are visible from a given point over time)
+  but useless for true wardriving tracks. To restore a real GPS,
+  resurrect `src/gps.c` from the git history before this change.
 
 ## Troubleshooting
 
@@ -221,9 +224,10 @@ Main-loop state machine:
 * `make install` cannot find the mount point: BOOTSEL must be held
   *while plugging in USB* until `RP2350` appears. Pressing the on-board
   RESET alone does not enter the bootloader.
-* GPS never gets a fix: cold-start typically takes 30 s to a few
-  minutes outdoors. To inspect raw NMEA, add a `printf` inside
-  `handle_line` and watch the USB serial output.
+* All Wigle rows show the same FirstSeen timestamp: that's the
+  expected behaviour while the device's uptime is short. The timestamp
+  is `BUILD_EPOCH + uptime_seconds`, so an observation 30 s after boot
+  and one 10 s after boot will only differ by 20 s.
 * Uploads keep failing: re-run `make init` to confirm the token is
   still valid, then verify the upload Wi-Fi has a working internet
   egress (e.g. `ping api.wigle.net` from a laptop on the same SSID).
