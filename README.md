@@ -164,7 +164,7 @@ Main-loop state machine:
 
 The FirstSeen timestamp comes from `clock_sync`. Right after each
 Wi-Fi associate (i.e. on every upload) the firmware fires a one-shot
-SNTP UDP request to `pool.ntp.org`; on success the module records
+SNTP UDP request to `1.tw.pool.ntp.org`; on success the module records
 `(unix_seconds, uptime_at_sync)` and subsequent timestamps are
 `unix_seconds + (now - uptime_at_sync)`. Until the first successful
 sync, the fallback is `BUILD_EPOCH + uptime_seconds`, where

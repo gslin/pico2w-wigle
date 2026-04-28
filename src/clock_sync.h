@@ -1,8 +1,8 @@
 // Wall-clock time source.
 //
 // On a successful clock_sync_run() (one SNTP-style UDP exchange with
-// pool.ntp.org) the module records the Unix epoch reported by the
-// server together with the device uptime at that moment. Subsequent
+// 1.tw.pool.ntp.org) the module records the Unix epoch reported by
+// the server together with the device uptime at that moment. Subsequent
 // calls to clock_sync_now() advance from there using the monotonic
 // uptime counter.
 //

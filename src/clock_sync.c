@@ -12,7 +12,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
-#define NTP_HOST           "pool.ntp.org"
+#define NTP_HOST           "1.tw.pool.ntp.org"
 #define NTP_PORT           123
 #define NTP_PACKET_LEN     48
 // Seconds between the NTP epoch (1900-01-01) and the Unix epoch
