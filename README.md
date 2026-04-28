@@ -7,6 +7,15 @@ rows in RAM, and — every 1000 new observations — briefly joins a
 preconfigured Wi-Fi network to multipart-POST the batch to
 `https://api.wigle.net/api/v2/file/upload` over HTTPS.
 
+> **About this repository.** It was produced end-to-end by
+> [Claude Code](https://claude.com/claude-code) during an interactive
+> session — the design discussion, the C / shell sources, and the
+> commit history are all model output. None of it has been compiled
+> against a real `pico-sdk` or run on physical hardware in this loop,
+> so treat the firmware as a working draft: expect to fix at least a
+> few small things on the first `make build`, and validate the
+> upload flow against your own Wigle account before trusting it.
+
 ## Hardware
 
 * **Raspberry Pi Pico 2 W** (RP2350 + CYW43439).
