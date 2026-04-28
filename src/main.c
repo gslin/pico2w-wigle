@@ -1,17 +1,16 @@
-// pico2w-wigle: continuously scan Wi-Fi access points, tag with GPS
-// coordinates, and upload to wigle.net every CSV_BUFFER_UPLOAD_THRESHOLD
-// observations.
-//
-// Hardware: Raspberry Pi Pico 2 W (RP2350 + CYW43439) plus an external
-// UART GPS module wired to GP5 (UART1 RX). See gps.h for the pinout.
+// pico2w-wigle: continuously scan Wi-Fi access points, tag them with
+// the device's fixed GPS coordinates, and upload to wigle.net every
+// CSV_BUFFER_UPLOAD_THRESHOLD observations.
 
 #include <stdio.h>
 
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 
+#include "clock_sync.h"
 #include "csv_buffer.h"
 #include "gps.h"
+#include "secrets.h"
 #include "wifi_scan.h"
 #include "wigle_upload.h"
 
@@ -27,6 +26,33 @@ static void blink_led(int times, int gap_ms) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
         sleep_ms(gap_ms);
     }
+}
+
+// Brief Wi-Fi cycle at boot purely to bootstrap the wall clock from
+// NTP, so even the very first batch's FirstSeen column is real time
+// rather than BUILD_EPOCH + uptime. Best-effort: any failure leaves
+// clock_sync on its fallback baseline; the upload-time sync will try
+// again later.
+static void bootstrap_clock(void) {
+    printf("boot: associating with \"%s\" for initial NTP...\n",
+           UPLOAD_WIFI_SSID);
+    int err = cyw43_arch_wifi_connect_timeout_ms(
+        UPLOAD_WIFI_SSID,
+        UPLOAD_WIFI_PASSWORD,
+        CYW43_AUTH_WPA2_AES_PSK,
+        30000);
+    if (err) {
+        printf("boot: wifi connect failed (%d); first batch will use "
+               "BUILD_EPOCH timestamps\n", err);
+        return;
+    }
+    if (clock_sync_run()) {
+        printf("boot: NTP sync ok\n");
+    } else {
+        printf("boot: NTP sync failed; first batch will use BUILD_EPOCH "
+               "timestamps\n");
+    }
+    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
 }
 
 int main(void) {
@@ -51,6 +77,8 @@ int main(void) {
         printf("Fixed location: %.6f,%.6f  alt=%.1fm acc=%.1fm\n",
                g->latitude, g->longitude, g->altitude_m, g->accuracy_m);
     }
+
+    bootstrap_clock();
 
     absolute_time_t next_scan = make_timeout_time_ms(SCAN_INTERVAL_MS);
 

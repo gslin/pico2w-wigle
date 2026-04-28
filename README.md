@@ -134,8 +134,12 @@ Open the USB serial console (115200 8N1) to see something like:
 ```
 pico2w-wigle starting up
 Fixed location: 25.033500,121.564500  alt=12.0m acc=5.0m
+boot: associating with "MyPhoneHotspot" for initial NTP...
+clock_sync: synced, now=1745825436
+boot: NTP sync ok
 Buffer full (1000 rows, 142318 bytes). Uploading...
 upload: associating with "MyPhoneHotspot"...
+upload: NTP sync ok
 upload: HTTP 200 ok
 Upload OK; clearing buffer.
 ```
@@ -162,23 +166,24 @@ Main-loop state machine:
 4. On a 2xx response the buffer is cleared. Otherwise the rows are
    kept and the next attempt happens on the next threshold crossing.
 
-The FirstSeen timestamp comes from `clock_sync`. Right after each
-Wi-Fi associate (i.e. on every upload) the firmware fires a one-shot
-SNTP UDP request to `1.tw.pool.ntp.org`; on success the module records
-`(unix_seconds, uptime_at_sync)` and subsequent timestamps are
-`unix_seconds + (now - uptime_at_sync)`. Until the first successful
-sync, the fallback is `BUILD_EPOCH + uptime_seconds`, where
-`BUILD_EPOCH` is baked in at `cmake` configure time. So:
+The FirstSeen timestamp comes from `clock_sync`, which runs a
+one-shot SNTP UDP request against `1.tw.pool.ntp.org` at two points:
 
-* the **first** batch of 1000 rows is timestamped relative to
-  `BUILD_EPOCH` (rough but monotonic),
-* every subsequent batch starts with a fresh NTP sync and is
-  wall-clock accurate to within ±1 s.
+1. **At boot**, before the first scan: the firmware briefly joins
+   the configured upload Wi-Fi, fires the NTP query, then disassociates.
+   This adds a few seconds to startup but means even the very first
+   batch's FirstSeen column is wall-clock accurate.
+2. **On every upload**, immediately after the Wi-Fi associate and
+   before the api.wigle.net DNS lookup, so any drift between batches
+   is corrected.
 
-If you cannot reach NTP from the upload network, the upload still
-proceeds — the rows will just keep using the previous baseline. To
-keep the very first batch's timestamps close to reality, re-run
-`make reconfigure` (which refreshes `BUILD_EPOCH`) before flashing.
+On a successful sync the module records `(unix_seconds,
+uptime_at_sync)`; subsequent timestamps are
+`unix_seconds + (now - uptime_at_sync)`, drifting only with the
+RP2350 oscillator (~10 ppm). If both NTP attempts fail, the fallback
+is `BUILD_EPOCH + uptime_seconds`, where `BUILD_EPOCH` is baked in
+at `cmake` configure time — well-formed for Wigle's parser, just
+off by however long the firmware sat on the build host.
 
 ## Tunable constants
 
@@ -236,13 +241,12 @@ keep the very first batch's timestamps close to reality, re-run
 * `make install` cannot find the mount point: BOOTSEL must be held
   *while plugging in USB* until `RP2350` appears. Pressing the on-board
   RESET alone does not enter the bootloader.
-* The first batch's FirstSeen column is hours or days off: that's
-  expected — until the very first upload, no NTP sync has happened
-  yet, so timestamps are `BUILD_EPOCH + uptime_seconds`. Look at the
-  USB serial log for `upload: NTP sync ok`; once that line appears,
-  every subsequent observation is wall-clock accurate. If NTP keeps
-  failing, your upload Wi-Fi is probably blocking outbound UDP/123 —
-  try a different network.
+* FirstSeen timestamps look hours or days off: NTP is failing both
+  at boot and at upload time. Look at the USB serial log for
+  `boot: NTP sync ok` / `upload: NTP sync ok`; if neither appears,
+  your upload Wi-Fi is probably blocking outbound UDP/123, or the
+  hotspot can't reach `1.tw.pool.ntp.org` at all. Try a different
+  network or switch the host in `src/clock_sync.c`.
 * Uploads keep failing: re-run `make init` to confirm the token is
   still valid, then verify the upload Wi-Fi has a working internet
   egress (e.g. `ping api.wigle.net` from a laptop on the same SSID).
