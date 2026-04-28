@@ -81,7 +81,23 @@ the website. Visit:
 and copy the values shown under "API Name" and "API Token" (you may
 need to click "Show my Token" first).
 
+If your network blocks api.wigle.net (HiNet does, for example), set
+ALL_PROXY before running make init. curl honors socks5h for SOCKS5
+with remote DNS:
+
+    ALL_PROXY=socks5h://127.0.0.1:1080 make init
+
 EOF
+
+if [ -n "${ALL_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ] \
+   || [ -n "${https_proxy:-}" ] || [ -n "${all_proxy:-}" ]; then
+    echo 'Network access via proxy:'
+    [ -n "${ALL_PROXY:-}"   ] && echo "  ALL_PROXY=$ALL_PROXY"
+    [ -n "${HTTPS_PROXY:-}" ] && echo "  HTTPS_PROXY=$HTTPS_PROXY"
+    [ -n "${all_proxy:-}"   ] && echo "  all_proxy=$all_proxy"
+    [ -n "${https_proxy:-}" ] && echo "  https_proxy=$https_proxy"
+    echo
+fi
 
 # ---- step 1: credentials -------------------------------------------------
 
@@ -312,25 +328,46 @@ fi
 echo
 echo 'Verifying api.wigle.net currently chains to ISRG Root X1/X2 ...'
 
-# -no-CAfile and -no-CApath disable the system trust store, so the
-# only acceptable trust anchors are the ones we just extracted. This
-# is what catches the case where Wigle quietly switches CAs.
-if ! openssl s_client \
-        -CAfile "$ISRG_PEM" \
-        -no-CAfile -no-CApath \
-        -verify_return_error \
-        -servername api.wigle.net \
-        -connect api.wigle.net:443 \
-        </dev/null >"$TMP_DIR/verify.log" 2>&1
-then
-    echo 'ERROR: api.wigle.net does NOT chain to ISRG Root X1/X2.' >&2
-    echo '       Wigle may have switched off Let'\''s Encrypt. You can either' >&2
-    echo '       wait for them to switch back, or modify scripts/init.sh to' >&2
-    echo '       pin the new root they use. Last 20 lines of openssl output:' >&2
-    tail -n 20 "$TMP_DIR/verify.log" | sed 's/^/  /' >&2
-    exit 1
-fi
-echo 'OK — Wigle chains to ISRG.'
+# We use curl (not openssl s_client) because curl auto-honors
+# ALL_PROXY / HTTPS_PROXY for SOCKS5 routing, which matters for users
+# whose ISP (e.g. HiNet) blocks api.wigle.net.
+#
+# Strictness: curl on Debian-family distros treats --cacert as
+# additive to the compiled-in --capath default (/etc/ssl/certs). To
+# get an ISRG-only trust set we must override --capath to an empty
+# directory as well. With both flags set, a cert chain that doesn't
+# root at one of the certs in $ISRG_PEM fails with curl exit 60.
+#
+# Any HTTP status code from the server (even 401/403/404 to a request
+# without auth) means the TLS handshake completed against ISRG.
+mkdir -p "$TMP_DIR/empty-capath"
+VERIFY_LOG="$TMP_DIR/verify.log"
+HTTP_CODE_VERIFY=$(curl \
+    --cacert "$ISRG_PEM" \
+    --capath "$TMP_DIR/empty-capath" \
+    --max-time 30 \
+    -sS \
+    -o /dev/null \
+    -w '%{http_code}' \
+    'https://api.wigle.net/' \
+    2>"$VERIFY_LOG" \
+    || echo 'curl-failed')
+
+case "$HTTP_CODE_VERIFY" in
+    [1-5][0-9][0-9])
+        echo "OK — Wigle chains to ISRG (TLS handshake returned HTTP $HTTP_CODE_VERIFY)."
+        ;;
+    *)
+        echo 'ERROR: api.wigle.net TLS verify against ISRG-only trust failed.' >&2
+        echo '       Common causes:' >&2
+        echo '       - Wigle silently switched off Let'\''s Encrypt' >&2
+        echo '       - the network blocks api.wigle.net (set ALL_PROXY=socks5h://...)' >&2
+        echo '       - host CA store has a corrupt ISRG entry' >&2
+        echo '       Last 20 lines of curl output:' >&2
+        tail -n 20 "$VERIFY_LOG" | sed 's/^/  /' >&2
+        exit 1
+        ;;
+esac
 
 # ---- step 6: write headers atomically -----------------------------------
 

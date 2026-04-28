@@ -59,6 +59,19 @@ make install   # Copy the .uf2 onto a Pico 2 W in BOOTSEL mode
 
 ### `make init`
 
+If your network blocks `api.wigle.net` (HiNet routinely does), set a
+SOCKS5 or HTTPS proxy through `curl`'s standard environment variables
+before invoking the target. Both network calls in `init.sh` (the
+credential check and the chain-verify) honor them transparently:
+
+```sh
+ALL_PROXY=socks5h://127.0.0.1:1080 make init   # SOCKS5 with remote DNS
+HTTPS_PROXY=http://proxy.example:3128 make init # HTTP CONNECT
+```
+
+`socks5h` (with the `h`) makes curl resolve DNS through the proxy,
+which avoids the local resolver leaking the lookup.
+
 Runs `scripts/init.sh`, which:
 
 1. Prompts for the Wigle API Name and API Token.
@@ -76,10 +89,12 @@ Runs `scripts/init.sh`, which:
    host's CA store — first in the per-cert layouts used by Debian /
    Ubuntu / Fedora / Homebrew, then by walking the consolidated
    `ca-certificates.crt` bundle if needed.
-6. Connects to `api.wigle.net:443` with `openssl s_client -CAfile <those
-   roots> -no-CAfile -no-CApath -verify_return_error`, i.e. trusting
-   *only* the extracted ISRG roots. This catches the day Wigle ever
-   moves off Let's Encrypt — `make init` aborts loudly rather than
+6. Connects to `https://api.wigle.net/` via
+   `curl --cacert <ISRG> --capath <empty>`, i.e. trusting *only* the
+   extracted ISRG roots (the empty `--capath` is needed because Debian
+   curl otherwise falls back to the system `/etc/ssl/certs/`). Any
+   HTTP status code from the server means the TLS handshake passed
+   ISRG verification; otherwise `make init` aborts loudly rather than
    silently pin something that won't validate on-device.
 7. Writes credentials as C macros to `src/secrets.h` (mode `0600`)
    and the ISRG PEM(s) as a `static const unsigned char[]` to
