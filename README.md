@@ -54,24 +54,24 @@ Other targets:
 be edited by hand; write `$` as `$$` and `#` as `\#`. Any setting can also
 be given on the command line, e.g. `make install UPLOAD_INTERVAL=600`.
 
-| Variable          | Default        | Description                                  |
-| ----------------- | -------------- | -------------------------------------------- |
-| `WIFI_SSID`       |                | Wi-Fi network for uploads                    |
-| `WIFI_PASSWORD`   |                | Empty for an open network                    |
-| `WIFI_COUNTRY`    | `XX`           | Two-letter country code; `XX` is worldwide   |
-| `GPS_LAT`         |                | Latitude, decimal degrees                    |
-| `GPS_LON`         |                | Longitude, decimal degrees                   |
-| `GPS_ALT`         | `0`            | Altitude in meters (integer)                 |
-| `GPS_ACC`         | `10`           | Accuracy in meters                           |
-| `WIGLE_API_NAME`  |                | WiGLE API name (`AID...`)                    |
-| `WIGLE_API_TOKEN` |                | WiGLE API token                              |
-| `LOCAL_PROXY`     |                | Proxy for the build host, curl syntax        |
-| `PICO_PROXY`      |                | `socks5://[user:pass@]host:port`             |
-| `NTP_SERVER`      | `pool.ntp.org` | NTP server used by the Pico                  |
-| `SCAN_INTERVAL`   | `10`           | Seconds between scans                        |
-| `UPLOAD_INTERVAL` | `21600`        | Seconds between uploads                      |
-| `PICO_SDK_PATH`   | `.deps/pico-sdk` | pico-sdk checkout                          |
-| `PICO_MOUNT`      | auto           | Mount point of the `RP2350` drive            |
+| Variable          | Default               | Description                                |
+| ----------------- | --------------------- | ------------------------------------------ |
+| `WIFI_SSID`       |                       | Wi-Fi network for uploads                  |
+| `WIFI_PASSWORD`   |                       | Empty for an open network                  |
+| `WIFI_COUNTRY`    | `XX`                  | Two-letter country code; `XX` is worldwide |
+| `GPS_LAT`         |                       | Latitude, decimal degrees                  |
+| `GPS_LON`         |                       | Longitude, decimal degrees                 |
+| `GPS_ALT`         | `0`                   | Altitude in meters (integer)               |
+| `GPS_ACC`         | `10`                  | Accuracy in meters                         |
+| `WIGLE_API_NAME`  |                       | WiGLE API name (`AID...`)                  |
+| `WIGLE_API_TOKEN` |                       | WiGLE API token                            |
+| `LOCAL_PROXY`     |                       | Proxy for the build host, curl syntax      |
+| `PICO_PROXY`      |                       | `socks5://[user:pass@]host:port`           |
+| `NTP_SERVER`      | `time.stdtime.gov.tw` | NTP server used by the Pico                |
+| `SCAN_INTERVAL`   | `10`                  | Seconds between scans                      |
+| `UPLOAD_INTERVAL` | `21600`               | Seconds between uploads                    |
+| `PICO_SDK_PATH`   | `.deps/pico-sdk`      | pico-sdk checkout                          |
+| `PICO_MOUNT`      | auto                  | Mount point of the `RP2350` drive          |
 
 `make config` requests a token of type `API`. Set `WIGLE_TOKEN_TYPE` in the
 environment (`API`, `COMMAPI`, or `ANDROID`) to request another type.
@@ -120,7 +120,7 @@ the boot messages. Each line starts with the seconds since boot; an example:
 [     1.390] config: upload network "MyHotspot" (WPA2)
 [     1.390] config: location 25.0335,121.5645, altitude 0 m, accuracy 10 m
 [     1.390] config: scan every 10 s, upload every 21600 s, first upload after 60 s
-[     1.390] config: WiGLE API name AID0123456789, NTP server pool.ntp.org
+[     1.390] config: WiGLE API name AID0123456789, NTP server time.stdtime.gov.tw
 [     1.390] config: no proxy
 [     3.050] scan: new 00:11:22:33:44:55 ch  6  -48 dBm [WPA2][ESS]      "MyHotspot"
 [     3.920] scan: 14 results in 2530 ms, 12 new, 12 in table
@@ -130,7 +130,7 @@ the boot messages. Each line starts with the seconds since boot; an example:
 [    63.200] wifi: joined, waiting for DHCP (1790 ms)
 [    64.010] wifi: up (2600 ms)
 [    64.010] wifi: IP 192.168.1.23, netmask 255.255.255.0, gateway 192.168.1.1, DNS 192.168.1.1, RSSI -48 dBm
-[    64.010] ntp: asking pool.ntp.org
+[    64.010] ntp: asking time.stdtime.gov.tw
 [    64.300] ntp: 2026-10-13 14:11:05 UTC from 203.0.113.5 (290 ms)
 [    64.300] upload: to https://api.wigle.net/api/v2/file/upload as AID0123456789
 [    64.360] net: api.wigle.net is 203.0.113.80 (60 ms)

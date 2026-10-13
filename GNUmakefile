@@ -33,7 +33,7 @@ WIGLE_API_TOKEN  ?=
 LOCAL_PROXY      ?=
 # SOCKS5 proxy used by the Pico, e.g. socks5://192.168.1.10:1080.
 PICO_PROXY       ?=
-NTP_SERVER       ?= pool.ntp.org
+NTP_SERVER       ?= time.stdtime.gov.tw
 SCAN_INTERVAL    ?= 10
 UPLOAD_INTERVAL  ?= 21600
 
