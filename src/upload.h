@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#define APP_VERSION "1.0"
+
 // Needs a network connection and a valid clock. True when WiGLE accepted
 // the file.
 bool upload_run(void);

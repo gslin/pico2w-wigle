@@ -15,13 +15,13 @@
 #include "pico/version.h"
 
 #include "config.h"
+#include "log.h"
 #include "net.h"
 #include "scan.h"
 
 #define WIGLE_HOST  "api.wigle.net"
 #define WIGLE_PORT  443
 #define WIGLE_PATH  "/api/v2/file/upload"
-#define APP_VERSION "1.0"
 // CSV lines start with a MAC address, so this never appears in the body.
 #define BOUNDARY    "pico2w-wigle-5f0c2e9a"
 
@@ -70,7 +70,7 @@ static void print_error(const char *what, int err) {
         err != MBEDTLS_ERR_NET_RECV_FAILED) {
         mbedtls_strerror(err, msg, sizeof msg);
     }
-    printf("upload: %s: %s (-0x%04x)\n", what, msg, (unsigned)-err);
+    LOG("upload: %s: %s (-0x%04x)", what, msg, (unsigned)-err);
 }
 
 static void out_flush(void) {
@@ -95,14 +95,6 @@ static void out(const void *data, size_t len) {
         len -= n;
         if (olen == sizeof obuf) out_flush();
     }
-}
-
-// Android-style capability string; WiGLE looks for WPA2/WPA/WEP in it.
-static const char *capabilities(uint8_t auth) {
-    if (auth & 4) return auth & 2 ? "[WPA][WPA2][ESS]" : "[WPA2][ESS]";
-    if (auth & 2) return "[WPA][ESS]";
-    if (auth & 1) return "[WEP][ESS]";
-    return "[ESS]";
 }
 
 // SSID as a CSV field (RFC 4180), without control characters. dst needs
@@ -142,18 +134,32 @@ static size_t format_row(char *buf, size_t size, const scan_ap_t *a, time_t offs
                      GPS_LAT "," GPS_LON "," GPS_ALT "," GPS_ACC ",,,WIFI\n",
                      a->bssid[0], a->bssid[1], a->bssid[2],
                      a->bssid[3], a->bssid[4], a->bssid[5],
-                     ssid, capabilities(a->auth_mode),
+                     ssid, scan_capabilities(a->auth_mode),
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                      tm.tm_hour, tm.tm_min, tm.tm_sec,
                      a->channel, freq, a->rssi);
     return MIN((size_t)n, size - 1);
 }
 
+// Called for each certificate of the server chain, from the root down.
+static int on_verify(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+    (void)ctx;
+    char dn[128];
+    mbedtls_x509_dn_gets(dn, sizeof dn, &crt->subject);
+    LOG("tls: chain %d: %s%s", depth, dn, *flags ? " (problem, see below)" : "");
+    return 0;
+}
+
 static int tls_connect(void) {
     int r;
-    if ((r = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy, NULL, 0)) != 0 ||
-        (r = mbedtls_x509_crt_parse(&ca, (const unsigned char *)ca_pem, sizeof ca_pem)) != 0 ||
-        (r = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT,
+    if ((r = mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy, NULL, 0)) != 0) {
+        return r;
+    }
+    if ((r = mbedtls_x509_crt_parse(&ca, (const unsigned char *)ca_pem, sizeof ca_pem)) != 0) {
+        if (r > 0) LOG("tls: %d root certificates could not be parsed", r);
+        return r > 0 ? MBEDTLS_ERR_X509_CERT_UNKNOWN_FORMAT : r;
+    }
+    if ((r = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT,
                                          MBEDTLS_SSL_TRANSPORT_STREAM,
                                          MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
         return r;
@@ -161,13 +167,14 @@ static int tls_connect(void) {
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&conf, &ca, NULL);
     mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
+    mbedtls_ssl_conf_verify(&conf, on_verify, NULL);
     if ((r = mbedtls_ssl_setup(&ssl, &conf)) != 0 ||
         (r = mbedtls_ssl_set_hostname(&ssl, WIGLE_HOST)) != 0) {
         return r;
     }
 
     if (PROXY_HOST[0]) {
-        printf("upload: via SOCKS5 proxy %s:%d\n", PROXY_HOST, PROXY_PORT);
+        LOG("upload: via SOCKS5 proxy %s:%d", PROXY_HOST, PROXY_PORT);
         if (net_connect(&conn, PROXY_HOST, PROXY_PORT) < 0 ||
             net_socks5(&conn, WIGLE_HOST, WIGLE_PORT, PROXY_USER, PROXY_PASS) < 0) {
             return MBEDTLS_ERR_NET_CONNECT_FAILED;
@@ -176,13 +183,25 @@ static int tls_connect(void) {
         return MBEDTLS_ERR_NET_CONNECT_FAILED;
     }
 
+    uint32_t start = now_ms();
     mbedtls_ssl_set_bio(&ssl, &conn, bio_send, bio_recv, NULL);
     r = mbedtls_ssl_handshake(&ssl);
     uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
-    if (r != 0 && flags != 0 && flags != (uint32_t)-1) {
+    if (r == 0) {
+        LOG("tls: %s %s (%lu ms, heap %lu of %lu bytes in use)",
+            mbedtls_ssl_get_version(&ssl), mbedtls_ssl_get_ciphersuite(&ssl),
+            (unsigned long)(now_ms() - start),
+            (unsigned long)heap_used(), (unsigned long)heap_size());
+    } else if (flags != 0 && flags != (uint32_t)-1) {
         char info[256];
-        mbedtls_x509_crt_verify_info(info, sizeof info, "  ", flags);
-        printf("upload: certificate verification failed:\n%s", info);
+        mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
+        // One line per problem; the clock matters for the validity dates.
+        for (char *line = strtok(info, "\n"); line; line = strtok(NULL, "\n")) {
+            LOG("tls: certificate: %s", line);
+        }
+        if (flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)) {
+            LOG("tls: check the clock: %lu", (unsigned long)time(NULL));
+        }
     }
     return r;
 }
@@ -206,6 +225,7 @@ static void send_request(time_t now) {
     for (size_t i = 0; i < scan_count(); i++) {
         body += format_row(row, sizeof row, scan_get(i), offset);
     }
+    LOG("upload: sending %u networks, %u bytes", (unsigned)scan_count(), (unsigned)body);
 
     if (mbedtls_base64_encode((unsigned char *)auth, sizeof auth, &alen,
                               (const unsigned char *)cred, strlen(cred)) != 0) {
@@ -261,12 +281,22 @@ static bool json_success(const char *s) {
     return strncmp(p, "true", 4) == 0;
 }
 
+static void log_status_hint(int status) {
+    switch (status) {
+    case 200: break;
+    case 401: LOG("upload: hint: WiGLE rejected the API token; run `make config`"); break;
+    case 429: LOG("upload: hint: too many uploads today, WiGLE limits the rate"); break;
+    case 0: LOG("upload: hint: no HTTP reply; is the proxy or network dropping it?"); break;
+    default: break;
+    }
+}
+
 bool upload_run(void) {
     static char resp[1024];
     bool ok = false;
+    uint32_t start = now_ms();
 
-    printf("upload: %u networks to https://" WIGLE_HOST WIGLE_PATH "\n",
-           (unsigned)scan_count());
+    LOG("upload: to https://" WIGLE_HOST WIGLE_PATH " as %s", WIGLE_API_NAME);
     mbedtls_ssl_init(&ssl);
     mbedtls_ssl_config_init(&conf);
     mbedtls_x509_crt_init(&ca);
@@ -276,8 +306,10 @@ bool upload_run(void) {
     out_err = 0;
 
     int r = tls_connect();
-    if (r != 0) {
-        print_error("TLS connection failed", r);
+    if (r == MBEDTLS_ERR_NET_CONNECT_FAILED) {
+        LOG("upload: cannot reach WiGLE%s", PROXY_HOST[0] ? " through the proxy" : "");
+    } else if (r != 0) {
+        print_error("TLS failed", r);
     } else {
         send_request(time(NULL));
         if (out_err) {
@@ -286,13 +318,16 @@ bool upload_run(void) {
             int status = read_response(resp, sizeof resp);
             const char *body = strstr(resp, "\r\n\r\n");
             body = body ? body + 4 : "";
-            printf("upload: HTTP %d %s\n", status, body);
+            LOG("upload: HTTP %d, %u bytes: %s", status, (unsigned)strlen(resp), body);
+            log_status_hint(status);
             ok = status == 200 && json_success(body);
+            if (status == 200 && !ok) LOG("upload: reply has no \"success\": true");
         }
         mbedtls_ssl_close_notify(&ssl);
     }
 
     net_close(&conn);
+    LOG("upload: %s in %lu ms", ok ? "accepted" : "failed", (unsigned long)(now_ms() - start));
     mbedtls_ssl_free(&ssl);
     mbedtls_ssl_config_free(&conf);
     mbedtls_x509_crt_free(&ca);

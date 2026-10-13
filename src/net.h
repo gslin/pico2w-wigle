@@ -13,6 +13,7 @@ typedef struct {
     struct pbuf *rx;     // received, not yet read
     bool connected;
     bool eof;
+    uint32_t sent, received; // byte counts, for the log
 } net_conn_t;
 
 // Service the Wi-Fi chip and lwIP, feed the watchdog, then wait up to ms

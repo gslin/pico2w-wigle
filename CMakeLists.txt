@@ -33,6 +33,8 @@ target_include_directories(pico2w-wigle PRIVATE
 
 target_compile_definitions(pico2w-wigle PRIVATE
     CYW43_HOST_NAME=\"pico2w-wigle\"
+    # Give a serial terminal time to attach so the boot messages are seen.
+    PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=3000
 )
 
 target_link_libraries(pico2w-wigle

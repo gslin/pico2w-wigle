@@ -21,9 +21,13 @@ typedef struct {
 int scan_start(void);
 bool scan_active(void);
 
+// Call once a scan has finished. Logs a summary and returns the number of
+// new BSSIDs.
+uint32_t scan_finish(void);
+
 size_t scan_count(void);
 const scan_ap_t *scan_get(size_t i);
 void scan_clear(void);
 
-// Number of new BSSIDs since the previous call.
-uint32_t scan_take_new(void);
+// Android-style capability string, e.g. "[WPA2][ESS]".
+const char *scan_capabilities(uint8_t auth_mode);
