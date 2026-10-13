@@ -105,7 +105,63 @@ NTP (UDP port 123) does not go through the proxy.
   validity period.
 * The on-board LED blinks when new BSSIDs are found and stays on during
   uploads.
-* A log is printed on the USB serial console.
+
+## Debugging
+
+The firmware logs to the USB serial console, e.g. `tio /dev/ttyACM0` or
+`screen /dev/ttyACM0` (`/dev/cu.usbmodem*` on macOS). At boot it waits up to
+3 seconds for a terminal, so keep one open (tio reconnects by itself) to see
+the boot messages. Each line starts with the seconds since boot; an example:
+
+```
+[     1.020] pico2w-wigle 1.0, built Oct 13 2026 22:10:00, pico-sdk 2.3.1
+[     1.020] reset: power-on or reset
+[     1.390] wifi: MAC 2c:cf:67:00:00:01, country XX
+[     1.390] config: upload network "MyHotspot" (WPA2)
+[     1.390] config: location 25.0335,121.5645, altitude 0 m, accuracy 10 m
+[     1.390] config: scan every 10 s, upload every 21600 s, first upload after 60 s
+[     1.390] config: WiGLE API name AID0123456789, NTP server pool.ntp.org
+[     1.390] config: no proxy
+[     3.050] scan: new 00:11:22:33:44:55 ch  6  -48 dBm [WPA2][ESS]      "MyHotspot"
+[     3.920] scan: 14 results in 2530 ms, 12 new, 12 in table
+[    61.400] status: 6 scans, 31 networks in table, next upload in 0 s, last upload none yet, heap 1024 of 367964 bytes in use
+[    61.410] wifi: joining "MyHotspot"
+[    61.410] wifi: joining (0 ms)
+[    63.200] wifi: joined, waiting for DHCP (1790 ms)
+[    64.010] wifi: up (2600 ms)
+[    64.010] wifi: IP 192.168.1.23, netmask 255.255.255.0, gateway 192.168.1.1, DNS 192.168.1.1, RSSI -48 dBm
+[    64.010] ntp: asking pool.ntp.org
+[    64.300] ntp: 2026-10-13 14:11:05 UTC from 203.0.113.5 (290 ms)
+[    64.300] upload: to https://api.wigle.net/api/v2/file/upload as AID0123456789
+[    64.360] net: api.wigle.net is 203.0.113.80 (60 ms)
+[    64.560] net: connected to api.wigle.net:443 (200 ms)
+[    65.900] tls: chain 2: C=US, O=ISRG, CN=Root YR
+[    65.900] tls: chain 1: C=US, O=Let's Encrypt, CN=YR2
+[    65.900] tls: chain 0: CN=wigle.net
+[    66.700] tls: TLSv1.2 TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256 (2140 ms, heap 48000 of 367964 bytes in use)
+[    66.710] upload: sending 31 networks, 3900 bytes
+[    67.900] upload: HTTP 200, 512 bytes: {"success":true,...}
+[    67.910] net: closed, 5800 bytes sent, 6100 received
+[    67.910] upload: accepted in 3610 ms
+[    67.950] upload: next one in 21600 s
+```
+
+The prefix tells which part is talking: `wifi`, `scan`, `ntp`, `net` (DNS
+and TCP), `socks5`, `tls`, `upload`, and `status` (once a minute). Messages
+that point at common problems:
+
+| Message                                         | Likely cause                                         |
+| ----------------------------------------------- | ---------------------------------------------------- |
+| `wifi: wrong password`, `network not found`     | `WIFI_SSID` / `WIFI_PASSWORD`, or a 5 GHz-only AP    |
+| `ntp: no reply ...`                             | UDP port 123 blocked; try another `NTP_SERVER`       |
+| `net: cannot resolve ...`                       | DNS from DHCP does not work                          |
+| `socks5: ...`                                   | `PICO_PROXY` address or credentials                  |
+| `tls: certificate: ...`                         | Wrong clock, or WiGLE moved off Let's Encrypt        |
+| `upload: HTTP 401`                              | API token rejected; run `make config`                |
+| `reset: watchdog timeout`                       | The firmware hung; the lines before the reset matter |
+
+To try the upload without waiting, the first one already runs 60 seconds
+after boot; `make install UPLOAD_INTERVAL=600` shortens the interval too.
 
 ## Limitations
 
